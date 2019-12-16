@@ -1,4 +1,9 @@
-# shenanigans-mem-tool
-A powerful RAM editing tool for the Wii
+# shenanigans-wii
+A powerful system manipulation tool for the Wii
 
-Shenanigans allows you poke and peek values, copy RAM to a USB or SD card, copy the contents of a file to RAM, view chunks of RAM and execute code at any address.
+Shenanigans allows you to:
+* Poke and peek values at any virtual address
+* Transfer RAM to and from a USB or SD card
+* View chunks of RAM
+* Interface with IOS using IPC
+* Execute code at any address

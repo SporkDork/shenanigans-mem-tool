@@ -1,86 +1,93 @@
-#include "fs.h"
-#include "ui.h"
+#include "header.h"
+
+struct _device_t {
+	const char *type;
+	const DISC_INTERFACE *interface;
+}
+devs[] = {{"sd", &__io_wiisd}, {"usb", &__io_usbstorage}};
+const int n_devs = 2;
+
+struct _device_t *device = NULL;
 
 int dev_init() {
-	if (!__io_wiisd.startup() || !__io_wiisd.isInserted()) {
-		if (!__io_usbstorage.startup() || !__io_usbstorage.isInserted()) return 0;
-		fatMountSimple("usb", &__io_usbstorage);
-		return 2;
+	if (device)
+		dev_close();
+
+	int i;
+	for (i = 0; i < n_devs; i++) {
+		if (!devs[i].interface->startup() || !devs[i].interface->isInserted())
+			continue;
+
+		device = &devs[i];
+		fatMountSimple(device->type, device->interface);
+		break;
 	}
-	fatMountSimple("sd", &__io_wiisd);
-	return 1;
+
+	return device != NULL;
 }
 
-void dev_close(int type) {
-	if (type < 1 || type > 2) return;
-	fatUnmount(type == 1 ? "sd" : "usb");
-	if (type == 1) __io_wiisd.shutdown();
-	if (type == 2) __io_usbstorage.shutdown();
+const char *dev_type() {
+	if (!device)
+		return NULL;
+
+	return device->type;
 }
 
-int exists(char *name) {
+void dev_close() {
+	if (!device)
+		return;
+
+	device->interface->shutdown();
+	device = NULL;
+}
+
+int entry_type(char *name) {
 	struct stat s;
-	return stat(name, &s) == 0;
+	if (stat(name, &s) != 0) // if the entry doesn't exist
+		return TYPE_NONE;
+
+	if (S_ISREG(s.st_mode)) // if the entry is a file
+		return TYPE_FILE;
+	else if (S_ISDIR(s.st_mode)) // if the entry is a folder
+		return TYPE_DIR;
+
+	return TYPE_OTHER;
 }
 
-int is_file(char *name) {
-	struct stat s;
-	return (stat(name, &s) == 0) && S_ISREG(s.st_mode);
-}
-
-char **get_filenames(char *path, int *n_files) {
-	if (!exists(path)) {
+ui_entry *get_filenames(char *path, int *total) {
+	if (entry_type(path) == TYPE_NONE) {
 		mkdir(path, 0777);
 		printf("\x1b[25;10H%s created", path);
 		return NULL;
 	}
+
 	int count = 0;
-	char **files = calloc(200, 4);
-	char name[200];
+	ui_entry *names = NULL;
+
 	DIR *dir = opendir(path);
 	if (!dir) {
 		printf("\x1b[25;10HCould not open \"%s\"", path);
 		return NULL;
 	}
+
 	struct dirent *ent;
-	while ((ent = readdir(dir)) != NULL && count < 200) {
-		if (strlen(ent->d_name) > 180) {
-			printf("\x1b[25;10HFilename too large, skipping");
-			continue;
-		}
-		sprintf(name, "%s/%s", path, ent->d_name);
-		if (!is_file(name)) continue;
-		files[count++] = strdup(ent->d_name);
+	while ((ent = readdir(dir)) != NULL) {
+		names = realloc(names, (count + 1) * sizeof(char*));
+		names[count].str = strdup(ent->d_name);
+
+		int type = entry_type(ent->d_name);
+		names[count].info = type;
+		names[count].more = type == 2; // if type == 2, the current entry is a folder
+
+		count++;
 	}
 	closedir(dir);
+
 	if (!count) {
-		printf("\x1b[26;10HCould not find any files in the given path");
-		free(files);
-		files = NULL;
+		free(names);
+		names = NULL;
 	}
-	if (n_files) *n_files = count;
-	return files;
-}
 
-int get_width(char **names, int len) {
-	int i;
-	int high = 0, l = 0;
-	for (i = 0; i < len; i++) {
-		if (!names[i]) continue;
-		l = strlen(names[i]);
-		if (l > high) high = l;
-	}
-	return high;
-}
-
-void delete_str(char *s) {
-	memset(s, 0, strlen(s));
-	free(s);
-	s = NULL;
-}
-
-void close_filenames(char **files, int n_files) {
-	int i;
-	for (i = 0; i < n_files; i++) delete_str(files[i]);
-	free(files);
+	if (total) *total = count;
+	return names;
 }
